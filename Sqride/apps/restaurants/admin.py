@@ -42,7 +42,7 @@ class RestaurantAdmin(ModelAdmin):
 
 @admin.register(Branch)
 class BranchAdmin(ModelAdmin):
-    list_display = ('name', 'restaurant', 'is_active', 'is_delivery_available', 'is_pickup_available', 'is_dine_in_available')
+    list_display = ('name', 'restaurant', 'is_active', 'is_delivery_available', 'is_pickup_available', 'is_dine_in_available','kitchen_enabled')
     list_filter = ('is_active', 'is_delivery_available', 'is_pickup_available', 'is_dine_in_available', 'restaurant')
     search_fields = ('name', 'restaurant__name', 'address', 'phone')
     readonly_fields = ('created_at', 'updated_at')
@@ -57,7 +57,7 @@ class BranchAdmin(ModelAdmin):
             'fields': ('latitude', 'longitude')
         }),
         ('Settings', {
-            'fields': ('is_active', 'is_delivery_available', 'is_pickup_available', 'is_dine_in_available', 'operating_hours', 'settings')
+            'fields': ('is_active', 'is_delivery_available', 'is_pickup_available', 'is_dine_in_available', 'operating_hours', 'kitchen_enabled', 'kitchen_settings', 'settings')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
