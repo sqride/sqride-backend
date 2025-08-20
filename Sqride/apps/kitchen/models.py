@@ -106,3 +106,31 @@ class KitchenAnalytics(TimestampedModel):
     average_preparation_time = models.DurationField(null=True)
     peak_hours = models.JSONField(default=dict)
     sla_breaches = models.IntegerField(default=0)
+
+class KitchenNotification(TimestampedModel):
+    """Model for storing kitchen notifications when WebSocket fails"""
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='kitchen_notifications')
+    order_id = models.IntegerField()
+    status = models.CharField(max_length=50)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    notification_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('order_update', 'Order Update'),
+            ('delay_alert', 'Delay Alert'),
+            ('staff_assignment', 'Staff Assignment'),
+            ('system_alert', 'System Alert')
+        ],
+        default='order_update'
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['branch', 'is_read']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"Kitchen Notification - {self.branch.name} - {self.message[:50]}"

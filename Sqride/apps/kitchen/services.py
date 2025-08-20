@@ -3,6 +3,8 @@ from restaurants.models import Branch
 from .models import KitchenStation, KitchenDisplay, KitchenStaff
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from django.utils import timezone
+from datetime import datetime
 
 class KitchenSystemService:
     @staticmethod
@@ -119,21 +121,123 @@ class KitchenSystemService:
 class KitchenNotificationService:
     @staticmethod
     def notify_kitchen_update(branch_id, order_id, status):
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"kitchen_{branch_id}",
-            {
-                "type": "kitchen.update",
-                "message": {
-                    "order_id": order_id,
-                    "status": status
+        """
+        Send real-time notification to kitchen staff
+        """
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"kitchen_{branch_id}",
+                {
+                    "type": "kitchen.update",
+                    "message": {
+                        "order_id": order_id,
+                        "status": status,
+                        "timestamp": timezone.now().isoformat()
+                    }
                 }
-            }
-        )
+            )
+            return True
+        except Exception as e:
+            # Fallback to database notification if WebSocket fails
+            return KitchenNotificationService.create_database_notification(branch_id, order_id, status)
+
+    @staticmethod
+    def create_database_notification(branch_id, order_id, status):
+        """
+        Create a database notification as fallback
+        """
+        try:
+            from .models import KitchenNotification
+            KitchenNotification.objects.create(
+                branch_id=branch_id,
+                order_id=order_id,
+                status=status,
+                message=f"Order {order_id} status changed to {status}",
+                created_at=timezone.now()
+            )
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def get_notifications(branch, limit=50):
+        """
+        Get recent notifications for a branch
+        """
+        try:
+            from .models import KitchenNotification
+            notifications = KitchenNotification.objects.filter(
+                branch=branch,
+                is_read=False
+            ).order_by('-created_at')[:limit]
+            
+            return [{
+                'id': n.id,
+                'order_id': n.order_id,
+                'status': n.status,
+                'message': n.message,
+                'created_at': n.created_at,
+                'is_read': n.is_read
+            } for n in notifications]
+        except Exception:
+            return []
+
+    @staticmethod
+    def mark_as_read(notification_id):
+        """
+        Mark a notification as read
+        """
+        try:
+            from .models import KitchenNotification
+            notification = KitchenNotification.objects.get(id=notification_id)
+            notification.is_read = True
+            notification.save()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def clear_notifications(branch):
+        """
+        Clear all notifications for a branch
+        """
+        try:
+            from .models import KitchenNotification
+            KitchenNotification.objects.filter(branch=branch).update(is_read=True)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def notify_delay_alert(branch_id, order_id, delay_minutes):
+        """
+        Notify kitchen staff about order delays
+        """
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"kitchen_{branch_id}",
+                {
+                    "type": "kitchen.delay_alert",
+                    "message": {
+                        "order_id": order_id,
+                        "delay_minutes": delay_minutes,
+                        "timestamp": timezone.now().isoformat(),
+                        "alert_type": "delay"
+                    }
+                }
+            )
+            return True
+        except Exception:
+            return False
 
 class KitchenAssignmentService:
     @staticmethod
     def assign_order_to_station(kitchen_order_item):
+        """
+        Automatically assign an order item to available staff at a station
+        """
         available_staff = KitchenStaff.objects.filter(
             station=kitchen_order_item.station,
             is_available=True
@@ -145,3 +249,110 @@ class KitchenAssignmentService:
             available_staff.save()
             return True
         return False
+
+    @staticmethod
+    def auto_assign_orders(branch):
+        """
+        Automatically assign pending orders to available staff
+        """
+        try:
+            from .models import KitchenOrderItem
+            
+            # Get all pending items that need assignment
+            pending_items = KitchenOrderItem.objects.filter(
+                kitchen_order__order__branch=branch,
+                status='pending',
+                station__isnull=False
+            ).select_related('station')
+            
+            assigned_count = 0
+            
+            for item in pending_items:
+                if KitchenAssignmentService.assign_order_to_station(item):
+                    assigned_count += 1
+                    item.status = 'preparing'
+                    item.started_at = timezone.now()
+                    item.save()
+            
+            return assigned_count
+        except Exception:
+            return 0
+
+    @staticmethod
+    def reassign_order(kitchen_order_item, new_station_id):
+        """
+        Reassign an order item to a different station
+        """
+        try:
+            new_station = KitchenStation.objects.get(id=new_station_id)
+            
+            # Check if new station is available
+            if not new_station.is_active:
+                return False, "Station is not active"
+            
+            # Update the item's station
+            kitchen_order_item.station = new_station
+            kitchen_order_item.save()
+            
+            # Try to auto-assign to available staff
+            if KitchenAssignmentService.assign_order_to_station(kitchen_order_item):
+                return True, "Order reassigned and staff assigned"
+            else:
+                return True, "Order reassigned but no staff available"
+                
+        except KitchenStation.DoesNotExist:
+            return False, "Station not found"
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def get_station_workload(branch):
+        """
+        Get current workload for all stations in a branch
+        """
+        try:
+            from .models import KitchenOrderItem
+            
+            stations = KitchenStation.objects.filter(branch=branch, is_active=True)
+            workload = {}
+            
+            for station in stations:
+                pending_count = KitchenOrderItem.objects.filter(
+                    station=station,
+                    status='pending'
+                ).count()
+                
+                preparing_count = KitchenOrderItem.objects.filter(
+                    station=station,
+                    status='preparing'
+                ).count()
+                
+                workload[station.name] = {
+                    'pending': pending_count,
+                    'preparing': preparing_count,
+                    'total': pending_count + preparing_count
+                }
+            
+            return workload
+        except Exception:
+            return {}
+
+    @staticmethod
+    def optimize_station_assignment(branch):
+        """
+        Optimize order assignment based on station workload
+        """
+        try:
+            workload = KitchenAssignmentService.get_station_workload(branch)
+            
+            # Find stations with lowest workload
+            sorted_stations = sorted(
+                workload.items(),
+                key=lambda x: x[1]['total']
+            )
+            
+            if sorted_stations:
+                return sorted_stations[0][0]  # Return station name with lowest workload
+            return None
+        except Exception:
+            return None
