@@ -5,7 +5,7 @@ from accounts.views.owner_views import OwnerRegistrationView,OwnerLoginView,Owne
 from accounts.views.branch_owner_views import BranchOwnerRegistrationView
 from accounts.views.user_views import UserRoleViewSet,BranchUserViewSet
 from accounts.views.branch_views import BranchPortalLoginView
-
+from accounts.views.password_reset_views import PasswordResetRequestView, PasswordResetConfirmView,PasswordResetValidateTokenView
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -18,7 +18,9 @@ router.register('branch-portal/login', BranchPortalLoginView, basename='branch-p
 router.register('roles', UserRoleViewSet, basename='user-role')
 router.register('branch-users', BranchUserViewSet, basename='branch-user')
 router.register('owner/restaurants', OwnerRestaurantsView, basename='owner-restaurants')
-
+router.register('password-reset/request/', PasswordResetRequestView, basename='password-reset')
+router.register("password-reset/confirm/", PasswordResetConfirmView, basename='password-reset-confirm')
+router.register("password-reset/validate-token/", PasswordResetValidateTokenView, basename='password-reset-validate-token')
 urlpatterns = [
 
     path('', include(router.urls)),

@@ -2,7 +2,11 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from core.models import TimestampedModel
 from django.contrib.auth.hashers import make_password, check_password
-
+from django.contrib.auth.hashers import make_password, check_password
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.utils import timezone
+import uuid
 
 class SuperAdminManager(BaseUserManager):
     def create_user(self, username, email, password=None, **extra_fields):
@@ -197,3 +201,33 @@ class BranchOwner(TimestampedModel,AbstractBaseUser):
 
     def __str__(self):
         return f"{self.name} "
+
+
+
+# Add this new model at the end of the file
+class PasswordResetToken(TimestampedModel):
+    """
+    Password reset token model that can be used for all user types
+    """
+    token = models.UUIDField(default=uuid.uuid4, unique=True)
+    email = models.EmailField()
+    is_used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    
+    # Generic foreign key to support all user types
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    user = GenericForeignKey('content_type', 'object_id')
+    
+    class Meta:
+        db_table = 'password_reset_tokens'
+        indexes = [
+            models.Index(fields=['token'], name='idx_password_reset_token'),
+            models.Index(fields=['email'], name='idx_password_reset_email'),
+        ]
+    
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+    
+    def __str__(self):
+        return f"Password reset token for {self.email}"
