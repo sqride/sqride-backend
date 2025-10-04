@@ -244,6 +244,7 @@ ALLOWED_HOSTS = [
     'api.sqride.com',
     'localhost',   # for local testing
     '127.0.0.1',   # optional for dev
+    "sqride.vercel.app"
 ]
 
 CORS_ALLOWED_ORIGINS = [
